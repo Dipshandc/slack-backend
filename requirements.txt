@@ -1,0 +1,15 @@
+asgiref==3.8.1
+certifi==2024.8.30
+charset-normalizer==3.3.2
+Django==5.1
+django-cors-headers==4.4.0
+djangorestframework==3.15.2
+environs==11.0.0
+idna==3.8
+marshmallow==3.22.0
+packaging==24.1
+python-dotenv==1.0.1
+requests==2.32.3
+slack_sdk==3.31.0
+sqlparse==0.5.1
+urllib3==2.2.2
