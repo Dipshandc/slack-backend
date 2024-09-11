@@ -6,40 +6,52 @@ import os
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from io import BytesIO
-from .models import SlackToken
+from .models import SlackToken, Channels
 import requests
 
 load_dotenv()
 
 class FileuploadView(APIView):
     def post(self, request):
-
         access_token = SlackToken.objects.get(user='demo').token
         try:
          client = WebClient(token=access_token)
         except:
-            return Response({"error": "Invalid access token"}, status=status.HTTP_400_BAD_REQUEST)
-
+            return Response({"error": "Invalid access token"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         try:
-          print(request.data['message'])
-          message = request.data['message']
-          channel = request.data['channel_id']
-          print(channel)
-          file = request.data['file']
-          print(file)
-          file_bytes = file.read()
-          file_io = BytesIO(file_bytes)
-          try:
-            client.files_upload_v2(
-               channel=channel,
-               file=file_io,
-               initial_comment=message
-            )
-          except SlackApiError:
-              return Response({"error": "Failed to upload file"},SlackApiError, status=status.HTTP_400_BAD_REQUEST)
-          print("gg")
-          return Response({"message": "File uploaded successfully"},status=status.HTTP_200_OK)
-    
+            channel_id = request.data['channel_id']
+            message = request.data['message']
+            file = request.data['file']
+            print(file)
+            file_bytes = file.read()
+            file_io = BytesIO(file_bytes)
+            url_check = f'https://slack.com/api/conversations.info?channel={channel_id}'
+            headers = {'Authorization': f"Bearer {access_token}",
+                        "Content-Type": "application/json; charset=utf-8"
+                    }
+            try:
+                response = requests.post(url_check,headers=headers)
+                print(response.json())
+                if response.json()['channel'].get('is_member') is False:
+                    url_join = "https://slack.com/api/conversations.join"
+                    data = {
+                                "channel": channel_id,
+                            }
+                    try:
+                        response = requests.post(url_join, json=data,headers=headers)
+                    except:
+                        return Response({"error": "error while joining channel"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                try:
+                    client.files_upload_v2(
+                    channel=channel_id,
+                    file=file_io,
+                    initial_comment=message
+                    )
+                    return Response({"message": "File uploaded successfully"},status=status.HTTP_200_OK)
+                except SlackApiError:
+                    return Response({"error": "Failed to upload file"},SlackApiError, status=status.HTTP_400_BAD_REQUEST)
+            except:
+                return Response({"error": "error while checking whether app is in channel or not"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         except:
            return Response({"error": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -115,10 +127,8 @@ class GetChannelsAndUsersView(APIView):
             return Response({"error": error_message}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class AccessTokenView(APIView):
-
     def post(self,request):
         print(request.data)
-
         try:
             print(request.data)
             access_token = request.data['access']
@@ -126,9 +136,59 @@ class AccessTokenView(APIView):
             slack_token, created = SlackToken.objects.get_or_create(user='demo')
             print(slack_token)
             slack_token.token = access_token
-            slack_token.save()
+            slack_token.save()     
             return Response({"message": "Access token saved successfully"}, status=status.HTTP_200_OK)
-
         except:
             return Response({"error": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class MessageChannelView(APIView):
+    def get(self,request,id):
+        access_token = SlackToken.objects.get(user='demo').token
+        headers = {'Authorization': f"Bearer {access_token}",
+                   "Content-Type": "application/json; charset=utf-8"
+                }
+        channel_id = id
+        try:
+            url = f"https://slack.com/api/conversations.history?channel={channel_id}"
+            response = requests.get(url, headers=headers)
+            return Response(response.json())
+        except:
+            return Response({"error": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    def post(self,request,id):
+        try:
+            message = request.data['message']
+            access_token = SlackToken.objects.get(user='demo').token
+            headers = {'Authorization': f"Bearer {access_token}",
+                       "Content-Type": "application/json; charset=utf-8"
+                       }
+            channel_id = id
+            url = "https://slack.com/api/chat.postMessage"
+            url_check = f'https://slack.com/api/conversations.info?channel={channel_id}'
+            try:
+                response = requests.post(url_check,headers=headers)
+                print(response.json())
+                if response.json()['channel'].get('is_member') is False:
+                    url_join = "https://slack.com/api/conversations.join"
+                    data = {
+                           "channel": channel_id,
+                        }
+                    try:
+                        response = requests.post(url_join, json=data,headers=headers)
+                    except:
+                        return Response({"error": "error while joining channel"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                data = {
+                    "channel": id,
+                    "text": message
+                }
+                try:
+                    response = requests.post(url, headers=headers, json=data).json()
+                    return Response({"message": "Message sent successfully","response":response},status=status.HTTP_200_OK)
+                except:
+                    return Response({"error": "error while sending message"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            except:
+                return Response({"error": "error while checking whether app is in channel or not"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except:
+            return Response({"message":"Bad request"},status=status.HTTP_400_BAD_REQUEST)  
 
