@@ -1,6 +1,8 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+
 from dotenv import load_dotenv
 import os
 from slack_sdk import WebClient
@@ -8,6 +10,7 @@ from slack_sdk.errors import SlackApiError
 from io import BytesIO
 from .models import SlackToken
 from .slack_exceptions import handle_slack_exception
+from .exceptions import custom_exception_handler
 import requests
 
 load_dotenv()
@@ -84,92 +87,83 @@ class SlackFileUploadView(APIView):
             response = custom_exception_handler(exc, self.get_renderer_context())
             return response
 
-class GetChannelsAndUsersView(APIView):
-    def get(self, request):
-        url1 = "https://slack.com/api/conversations.list"
-        query_params = {
-        'types': 'private_channel,public_channel',
-        }
-        access_token = SlackToken.objects.get(user='demo').token
-        headers = {
-
-        "Authorization": f"Bearer {access_token}"
+class SlackGetChannelsAndUsersAPIView(APIView):
+    permission_classes = [
+        IsAuthenticated,
+    ]
         
-        }
+    def get(self, request):
+        access_token = Slack.objects.get(user=request.user).access_token
+
         try:
-            response = requests.get(url1, params=query_params,headers=headers )
-            response.raise_for_status()
-            channels = response.json()
+            client = WebClient(token=access_token)
+            
+            # Fetch list of channels
+            response = client.conversations_list(types='private_channel,public_channel')
+            channels = response.get('channels', [])
             
             formatted_channels = []
-            print(channels)
-            for channel in channels['channels']:
-                print(channel)
-                channel_id = channel['id']
+
+            for channel in channels:
+                channel_id = channel.get('id')
                 channel_info = {
                     'id': channel_id,
-                    'name': channel['name'],
-                    'is_private': channel['is_private'],
-                    'num_members': channel['num_members'],
+                    'name': channel.get('name'),
+                    'is_private': channel.get('is_private'),
+                    'num_members': channel.get('num_members'),
                     'members': []
                 }
+
                 try:
-                    url2 = "https://slack.com/api/conversations.members"
-                    headers = {
-                    "Authorization": f"Bearer {access_token}"
-                    }
+                    # Fetch members of the channel
+                    response = client.conversations_members(channel=channel_id)
+                    member_ids = response.get('members', [])
 
-                    params = {
-                          "channel": channel_id
-                    }
-                    response = requests.get(url2, headers=headers, params=params)
-                    member_ids = response.json()
-                    print(member_ids)
-                    for user_id in member_ids['members']:
+                    for user_id in member_ids:
                         try:
-                            url3 = f"https://slack.com/api/users.info?user={user_id}"
-                            headers = {
-                             "Authorization": f"Bearer {access_token}"
-                            }
+                            # Fetch user info
+                            response = client.users_info(user=user_id)
+                            user_info = response.get('user', {})
+                            
+                            channel_info['members'].append({
+                                'id': user_id,
+                                'name': user_info.get('name', 'Unknown')
+                            })
 
-                            response = requests.get(url3, headers=headers)
-                            user_info = response.json()
-                            print(user_info)
-                        except:
-                            return Response("Error getting users")
+                        except SlackApiError as e:
+                            # Handle Slack API-specific errors
+                            response = handle_slack_exception(e)
+                            return response
                         
-                        channel_info['members'].append({
-                            'id': user_id,
-                            'name': user_info['user']['name'],
-                        })
-                
+                        except Exception as e:
+                            # Handle all other types of exceptions
+                            response = custom_exception_handler(e, self.get_renderer_context())
+                            return response
+
+
                 except SlackApiError as e:
-                    # If we can't get members, just note the error and continue
-                    channel_info['members'] = f"Error fetching members: {e.response['error']}"
+                    # Handle Slack API-specific errors
+                    response = handle_slack_exception(e)
+                    return response
                 
+                except Exception as e:
+                    # Handle all other types of exceptions
+                    response = custom_exception_handler(e, self.get_renderer_context())
+                    return response
+
                 formatted_channels.append(channel_info)
-            
+
             return Response(formatted_channels, status=status.HTTP_200_OK)
-        
+
         except SlackApiError as e:
-            error_message = f"Error fetching data: {e.response['error']}"
-            return Response({"error": error_message}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-class AccessTokenView(APIView):
-    def post(self,request):
-        print(request.data)
-        try:
-            print(request.data)
-            access_token = request.data['access']
-            print(access_token)
-            slack_token, created = SlackToken.objects.get_or_create(user='demo')
-            print(slack_token)
-            slack_token.token = access_token
-            slack_token.save()     
-            return Response({"message": "Access token saved successfully"}, status=status.HTTP_200_OK)
-        except:
-            return Response({"error": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
-
+            # Handle Slack API-specific errors
+            response = handle_slack_exception(e)
+            return response
+                
+        except Exception as e:
+            # Handle all other types of exceptions
+            response = custom_exception_handler(e, self.get_renderer_context())
+            return response
 
 class MessageChannelView(APIView):
     def get(self,request,id):
