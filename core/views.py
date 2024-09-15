@@ -15,13 +15,27 @@ import requests
 
 load_dotenv()
 
-class SlackFileUploadView(APIView):
+class SlackSaveAccessTokenAPIView(APIView):
     permission_classes = [
         IsAuthenticated,
     ]
+
+    def post(self,request):
+        try:
+            access_token = request.data['access']
+            slack_token, created = SlackToken.objects.get_or_create(user=request.user)
+            slack_token.token = access_token
+            slack_token.save()     
+            return Response({"message": "Access token saved successfully"}, status=status.HTTP_200_OK)
         
+        except Exception as exc:
+            response = custom_exception_handler(exc, self.get_renderer_context())
+            return response
+        
+class SlackFileUploadAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
     def post(self, request):
-        
         try:
             access_token = SlackToken.objects.get(user=request.user).access_token
             channel_id = request.data['channel_id']
@@ -29,63 +43,26 @@ class SlackFileUploadView(APIView):
             file = request.data['file']
             file_bytes = file.read()
             file_io = BytesIO(file_bytes)
+            client = WebClient(token=access_token)
 
-            try:
-                client = WebClient(token=access_token)
+            # Check if the app is a member of the channel
+            response = client.conversations_info(channel=channel_id)
+            if not response['channel'].get('is_member'):
+                # Join the channel if not already a member
+                client.conversations_join(channel=channel_id)
 
-            except SlackApiError as e:
-                # Handle Slack API-specific errors
-                response = handle_slack_exception(e)
-                return response
+            # Upload the file
+            client.files_upload_v2(channel=channel_id, file=file_io, initial_comment=message)
 
-            except Exception as exc:
-                # Handle all other types of exceptions
-                response = custom_exception_handler(exc, self.get_renderer_context())
-                return response
+            return Response({"message": "File uploaded successfully"}, status=status.HTTP_200_OK)
 
-            try:
-                response = client.conversations_info(channel=channel_id)
-                if response['channel'].get('is_member') is False:
-                    try:
-                        response = client.conversations_join(channel=channel_id)
+        except SlackApiError as e:
+            # Handle SlackToken API-specific errors
+            return handle_slack_exception(e)
 
-                    except SlackApiError as e:
-                        # Handle Slack API-specific errors
-                        response = handle_slack_exception(e)
-                        return response
-
-                    except Exception as exc:
-                        # Handle all other types of exceptions
-                        response = custom_exception_handler(exc, self.get_renderer_context())
-                        return response
-                    
-                try:
-                    client.files_upload_v2(channel=channel_id, file=file_io, initial_comment=message)
-                    return Response({"message": "File uploaded successfully"},status=status.HTTP_200_OK)
-                
-                except SlackApiError as e:
-                         # Handle Slack API-specific errors
-                         response = handle_slack_exception(e)
-                         return response
-
-                except Exception as exc:
-                    # Handle all other types of exceptions
-                    response = custom_exception_handler(exc, self.get_renderer_context())
-                    return response
-            
-            except SlackApiError as e:
-                # Handle Slack API-specific errors
-                response = handle_slack_exception(e)
-                return response
-            
-            except Exception as e:
-                # Handle all other types of exceptions
-                response = custom_exception_handler(exc, self.get_renderer_context())
-                return response
-        
-        except Exception as e:
-            response = custom_exception_handler(exc, self.get_renderer_context())
-            return response
+        except Exception as exc:
+            # Handle all other types of exceptions
+            return custom_exception_handler(exc, self.get_renderer_context())
 
 class SlackGetChannelsAndUsersAPIView(APIView):
     permission_classes = [
@@ -93,9 +70,8 @@ class SlackGetChannelsAndUsersAPIView(APIView):
     ]
         
     def get(self, request):
-        access_token = Slack.objects.get(user=request.user).access_token
-
         try:
+            access_token = SlackToken.objects.get(user=request.user).access_token
             client = WebClient(token=access_token)
             
             # Fetch list of channels
@@ -114,49 +90,26 @@ class SlackGetChannelsAndUsersAPIView(APIView):
                     'members': []
                 }
 
-                try:
-                    # Fetch members of the channel
-                    response = client.conversations_members(channel=channel_id)
-                    member_ids = response.get('members', [])
+                # Fetch members of the channel
+                response = client.conversations_members(channel=channel_id)
+                member_ids = response.get('members', [])
 
-                    for user_id in member_ids:
-                        try:
-                            # Fetch user info
-                            response = client.users_info(user=user_id)
-                            user_info = response.get('user', {})
+                for user_id in member_ids:
+                    # Fetch user info
+                    response = client.users_info(user=user_id)
+                    user_info = response.get('user', {})
                             
-                            channel_info['members'].append({
-                                'id': user_id,
-                                'name': user_info.get('name', 'Unknown')
-                            })
-
-                        except SlackApiError as e:
-                            # Handle Slack API-specific errors
-                            response = handle_slack_exception(e)
-                            return response
-                        
-                        except Exception as e:
-                            # Handle all other types of exceptions
-                            response = custom_exception_handler(e, self.get_renderer_context())
-                            return response
-
-
-                except SlackApiError as e:
-                    # Handle Slack API-specific errors
-                    response = handle_slack_exception(e)
-                    return response
-                
-                except Exception as e:
-                    # Handle all other types of exceptions
-                    response = custom_exception_handler(e, self.get_renderer_context())
-                    return response
+                    channel_info['members'].append({
+                        'id': user_id,
+                        'name': user_info.get('name', 'Unknown')
+                    })
 
                 formatted_channels.append(channel_info)
 
             return Response(formatted_channels, status=status.HTTP_200_OK)
 
         except SlackApiError as e:
-            # Handle Slack API-specific errors
+            # Handle SlackToken API-specific errors
             response = handle_slack_exception(e)
             return response
                 
@@ -164,54 +117,55 @@ class SlackGetChannelsAndUsersAPIView(APIView):
             # Handle all other types of exceptions
             response = custom_exception_handler(e, self.get_renderer_context())
             return response
-
+        
 class MessageChannelView(APIView):
-    def get(self,request,id):
-        access_token = SlackToken.objects.get(user='demo').token
-        headers = {'Authorization': f"Bearer {access_token}",
-                   "Content-Type": "application/json; charset=utf-8"
-                }
-        channel_id = id
-        try:
-            url = f"https://slack.com/api/conversations.history?channel={channel_id}"
-            response = requests.get(url, headers=headers)
-            return Response(response.json())
-        except:
-            return Response({"error": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
-    
-    def post(self,request,id):
-        try:
-            message = request.data['message']
-            access_token = SlackToken.objects.get(user='demo').token
-            headers = {'Authorization': f"Bearer {access_token}",
-                       "Content-Type": "application/json; charset=utf-8"
-                       }
-            channel_id = id
-            url = "https://slack.com/api/chat.postMessage"
-            url_check = f'https://slack.com/api/conversations.info?channel={channel_id}'
-            try:
-                response = requests.post(url_check,headers=headers)
-                print(response.json())
-                if response.json()['channel'].get('is_member') is False:
-                    url_join = "https://slack.com/api/conversations.join"
-                    data = {
-                           "channel": channel_id,
-                        }
-                    try:
-                        response = requests.post(url_join, json=data,headers=headers)
-                    except:
-                        return Response({"error": "error while joining channel"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-                data = {
-                    "channel": id,
-                    "text": message
-                }
-                try:
-                    response = requests.post(url, headers=headers, json=data).json()
-                    return Response({"message": "Message sent successfully","response":response},status=status.HTTP_200_OK)
-                except:
-                    return Response({"error": "error while sending message"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            except:
-                return Response({"error": "error while checking whether app is in channel or not"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        except:
-            return Response({"message":"Bad request"},status=status.HTTP_400_BAD_REQUEST)  
+    permission_classes = [
+        IsAuthenticated,
+    ]
 
+    def get(self, request, id):
+        try:
+            access_token = SlackToken.objects.get(user=request.user).token
+            client = WebClient(token=access_token)
+            channel_id = id
+            
+            # Fetch channel message history
+            response = client.conversations_history(channel=channel_id)
+            return Response(response.data, status=status.HTTP_200_OK)
+
+        except SlackApiError as e:
+            # Handle SlackToken API-specific errors
+            response = handle_slack_exception(e)
+            return response
+
+        except Exception as exc:
+            # Handle all other types of exceptions
+            response = custom_exception_handler(exc, self.get_renderer_context())
+            return response
+
+    def post(self, request, id):
+        try:
+            message = request.data.get('message')
+            access_token = SlackToken.objects.get(user=request.user).token
+            client = WebClient(token=access_token)
+            channel_id = id
+
+            # Check if the app is a member of the channel
+            response = client.conversations_info(channel=channel_id)
+
+            if not response['channel'].get('is_member'):
+                # Join the channel if not already a member
+                client.conversations_join(channel=channel_id)
+               
+            response = client.chat_postMessage(channel=channel_id, text=message)
+            return Response({"message": "Message sent successfully", "response": response.data}, status=status.HTTP_200_OK)
+
+        except SlackApiError as e:
+            # Handle SlackToken API-specific errors
+            response = handle_slack_exception(e)
+            return response
+
+        except Exception as exc:
+            # Handle all other types of exceptions
+            response = custom_exception_handler(exc, self.get_renderer_context())
+            return response
