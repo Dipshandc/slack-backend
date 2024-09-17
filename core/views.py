@@ -31,6 +31,25 @@ class SlackSaveAccessTokenAPIView(APIView):
         except Exception as exc:
             response = custom_exception_handler(exc, self.get_renderer_context())
             return response
+
+class SlackCheckConnectionAPIView(APIView):
+    permission_classes = [
+        IsAuthenticated,
+        ]
+    
+    def get(self, request):
+        try:
+            access_token = SlackToken.objects.get(user=request.user).access_token
+            client = WebClient(token=access_token)
+            return Response({"status":True,"message":"Slack token connection successful"},status=status.HTTP_200_OK)
+        
+        except SlackApiError as e:
+            # Handle Slack API-specific errors
+            return handle_slack_exception(e)
+
+        except Exception as exc:
+            # Handle all other types of exceptions
+            return custom_exception_handler(exc, self.get_renderer_context())
         
 class SlackFileUploadAPIView(APIView):
     permission_classes = [IsAuthenticated]
