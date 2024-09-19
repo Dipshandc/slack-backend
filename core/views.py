@@ -188,3 +188,14 @@ class MessageChannelView(APIView):
             # Handle all other types of exceptions
             response = custom_exception_handler(exc, self.get_renderer_context())
             return response
+
+class SlackDisconnetAPIView(APIView):
+    def post(self, request):
+        try:
+            slack = Slack.objects.get(user=request.user)
+            slack.delete()
+            return Response({"status":True,"message":f'Slack successfully disconnected for {request.user}'},status=status.HTTP_200_OK)
+
+        except Exception as exc:
+            response = custom_exception_handler(exc, self.get_renderer_context())
+            return response
