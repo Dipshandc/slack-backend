@@ -192,7 +192,7 @@ class MessageChannelView(APIView):
 class SlackDisconnetAPIView(APIView):
     def post(self, request):
         try:
-            slack = Slack.objects.get(user=request.user)
+            slack = SlackToken.objects.get(user=request.user)
             slack.delete()
             return Response({"status":True,"message":f'Slack successfully disconnected for {request.user}'},status=status.HTTP_200_OK)
 
