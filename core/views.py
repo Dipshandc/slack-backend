@@ -38,10 +38,20 @@ class SlackCheckConnectionAPIView(APIView):
         ]
     
     def get(self, request):
+
         try:
-            access_token = SlackToken.objects.get(user=request.user).access_token
+            access_token = Slack.objects.get(user=request.user).access_token
+            print(access_token)
             client = WebClient(token=access_token)
-            return Response({"status":True,"message":"Slack token connection successful"},status=status.HTTP_200_OK)
+            response = client.team_info()
+            if response['ok']:
+                data = {
+                    "workspace":response['team']['name'],
+                    "icon":response['team']['icon']['image_34']
+                }
+                return Response({"status":True,"data":data},status=status.HTTP_200_OK)
+            else:
+                return Response({"status":False,"message":"Slack connection failed"},status=status.HTTP_200_OK)
         
         except SlackApiError as e:
             # Handle Slack API-specific errors
