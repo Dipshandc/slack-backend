@@ -21,17 +21,22 @@ class SlackSaveAccessTokenAPIView(APIView):
     ]
 
     def post(self,request):
-        try:
-            access_token = request.data['access']
-            slack_token, created = SlackToken.objects.get_or_create(user=request.user)
-            slack_token.token = access_token
-            slack_token.save()     
-            return Response({"message": "Access token saved successfully"}, status=status.HTTP_200_OK)
+        # try:
+        access_token = request.data['access']
+        print(access_token)
+        print(request.tenant)
+        organization = Organization.objects.all().first()
+        print(organization)
+        slack, created = Slack.objects.get_or_create(organization=organization)
+        print(slack)
+        slack.access_token = access_token
+        slack.save()     
+        return Response({"status": True,"message": "Access token saved successfully"}, status=status.HTTP_200_OK)
+    
+        # except Exception as exc:
+        #     response = custom_exception_handler(exc, self.get_renderer_context())
+        #     return response
         
-        except Exception as exc:
-            response = custom_exception_handler(exc, self.get_renderer_context())
-            return response
-
 class SlackCheckConnectionAPIView(APIView):
     permission_classes = [
         IsAuthenticated,
@@ -40,7 +45,8 @@ class SlackCheckConnectionAPIView(APIView):
     def get(self, request):
 
         try:
-            access_token = Slack.objects.get(user=request.user).access_token
+            organization = Organization.objects.all().first()
+            access_token = Slack.objects.get(organization=organization).access_token
             print(access_token)
             client = WebClient(token=access_token)
             response = client.team_info()
@@ -66,7 +72,8 @@ class SlackFileUploadAPIView(APIView):
 
     def post(self, request):
         try:
-            access_token = SlackToken.objects.get(user=request.user).access_token
+            organization = Organization.objects.all().first()
+            access_token = Slack.objects.get(organization=organization).access_token
             channel_id = request.data['channel_id']
             message = request.data['message']
             file = request.data['file']
@@ -86,7 +93,7 @@ class SlackFileUploadAPIView(APIView):
             return Response({"message": "File uploaded successfully"}, status=status.HTTP_200_OK)
 
         except SlackApiError as e:
-            # Handle SlackToken API-specific errors
+            # Handle Slack API-specific errors
             return handle_slack_exception(e)
 
         except Exception as exc:
@@ -100,7 +107,8 @@ class SlackGetChannelsAndUsersAPIView(APIView):
         
     def get(self, request):
         try:
-            access_token = SlackToken.objects.get(user=request.user).access_token
+            organization = Organization.objects.all().first()
+            access_token = Slack.objects.get(organization=organization).access_token
             client = WebClient(token=access_token)
             
             # Fetch list of channels
@@ -112,7 +120,7 @@ class SlackGetChannelsAndUsersAPIView(APIView):
             for channel in channels:
                 channel_id = channel.get('id')
                 channel_info = {
-                    'id': channel_id,
+                    'hrefid': channel_id,
                     'name': channel.get('name'),
                     'is_private': channel.get('is_private'),
                     'num_members': channel.get('num_members'),
@@ -130,7 +138,7 @@ class SlackGetChannelsAndUsersAPIView(APIView):
                             
                     channel_info['members'].append({
                         'id': user_id,
-                        'name': user_info.get('name', 'Unknown')
+                        'name': user_info.get('real_name', 'Unknown')
                     })
 
                 formatted_channels.append(channel_info)
@@ -138,7 +146,7 @@ class SlackGetChannelsAndUsersAPIView(APIView):
             return Response(formatted_channels, status=status.HTTP_200_OK)
 
         except SlackApiError as e:
-            # Handle SlackToken API-specific errors
+            # Handle Slack API-specific errors
             response = handle_slack_exception(e)
             return response
                 
@@ -147,14 +155,15 @@ class SlackGetChannelsAndUsersAPIView(APIView):
             response = custom_exception_handler(e, self.get_renderer_context())
             return response
         
-class MessageChannelView(APIView):
+class SlackSendMessageAPIView(APIView):
     permission_classes = [
         IsAuthenticated,
     ]
 
     def get(self, request, id):
         try:
-            access_token = SlackToken.objects.get(user=request.user).token
+            organization = Organization.objects.all().first()
+            access_token = Slack.objects.get(organization=organization).access_token
             client = WebClient(token=access_token)
             channel_id = id
             
@@ -163,7 +172,7 @@ class MessageChannelView(APIView):
             return Response(response.data, status=status.HTTP_200_OK)
 
         except SlackApiError as e:
-            # Handle SlackToken API-specific errors
+            # Handle Slack API-specific errors
             response = handle_slack_exception(e)
             return response
 
@@ -174,8 +183,9 @@ class MessageChannelView(APIView):
 
     def post(self, request, id):
         try:
-            message = request.data.get('message')
-            access_token = SlackToken.objects.get(user=request.user).token
+            message = request.data.get('text')
+            organization = Organization.objects.all().first()
+            access_token = Slack.objects.get(organization=organization).access_token
             client = WebClient(token=access_token)
             channel_id = id
 
@@ -187,10 +197,10 @@ class MessageChannelView(APIView):
                 client.conversations_join(channel=channel_id)
                
             response = client.chat_postMessage(channel=channel_id, text=message)
-            return Response({"message": "Message sent successfully", "response": response.data}, status=status.HTTP_200_OK)
+            return Response({"message": "Message sent successfully", "status": True}, status=status.HTTP_200_OK)
 
         except SlackApiError as e:
-            # Handle SlackToken API-specific errors
+            # Handle Slack API-specific errors
             response = handle_slack_exception(e)
             return response
 
@@ -198,14 +208,16 @@ class MessageChannelView(APIView):
             # Handle all other types of exceptions
             response = custom_exception_handler(exc, self.get_renderer_context())
             return response
-
+        
 class SlackDisconnetAPIView(APIView):
     def post(self, request):
         try:
-            slack = SlackToken.objects.get(user=request.user)
+            organization = Organization.objects.all().first()
+            slack = Slack.objects.get(organization=organization)
             slack.delete()
             return Response({"status":True,"message":f'Slack successfully disconnected for {request.user}'},status=status.HTTP_200_OK)
 
         except Exception as exc:
             response = custom_exception_handler(exc, self.get_renderer_context())
             return response
+        
