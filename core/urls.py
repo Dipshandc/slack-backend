@@ -7,5 +7,6 @@ urlpatterns = [
   path('access-token/', SlackSaveAccessTokenAPIView.as_view(), name='access-token'),
   path('message/<str:id>', SlackSendMessageAPIView.as_view(), name='message-channel'),
   path('disconnect-slack/', SlackDisconnetAPIView.as_view(), name='message-channel'),
+  path('select-channels',SlackSelectedChannelGetOrUpdateAPIView.views(),name="select-channel")
   
 ]
