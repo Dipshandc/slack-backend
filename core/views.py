@@ -24,7 +24,7 @@ class SlackSaveAccessTokenAPIView(APIView):
         try:
             access_token = request.data['access']
             organization = Organization.objects.first()
-            slack, created = Slack.objects.get_or_create(organization=organization)
+            slack, created =  SlackToken.objects.get_or_create(organization=organization)
             slack.access_token = access_token
             slack.save()     
             return Response({"status": True,"message": "Access token saved successfully"}, status=status.HTTP_200_OK)
