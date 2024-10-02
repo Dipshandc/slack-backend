@@ -46,7 +46,7 @@ class SlackCheckConnectionAPIView(APIView):
 
         try:
             organization = Organization.objects.first()
-            slack = Slack.objects.get(organization=organization)
+            slack = SlackToken.objects.get(organization=organization)
             if slack is not None:
                 client = WebClient(token=slack.access_token)
                 response = client.team_info()
