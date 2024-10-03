@@ -75,7 +75,7 @@ class SlackFileUploadAPIView(APIView):
     def post(self, request):
         try:
             organization = Organization.objects.first()
-            slack = Slack.objects.get(organization=organization)
+            slack = SlackToken.objects.get(organization=organization)
             if slack is not None:
                 access_token = slack.access_token
                 channel_id = request.data['channel_id']
