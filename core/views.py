@@ -114,7 +114,7 @@ class SlackGetChannelsAndUsersAPIView(APIView):
     def get(self, request):
         try:
             organization = Organization.objects.first()
-            slack = Slack.objects.get(organization=organization)
+            slack = SlackToken.objects.get(organization=organization)
             if slack is not None:
                 access_token = slack.access_token
                 client = WebClient(token=access_token)
