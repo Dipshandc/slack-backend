@@ -203,7 +203,7 @@ class SlackSendMessageAPIView(APIView):
         try:
             message = request.data.get('text')
             organization = Organization.objects.first()
-            slack = Slack.objects.get(organization=organization)
+            slack = SlackToken.objects.get(organization=organization)
             if slack is not None:
                 access_token = slack.access_token
                 client = WebClient(token=access_token)
