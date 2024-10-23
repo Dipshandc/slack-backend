@@ -236,7 +236,7 @@ class SlackDisconnetAPIView(APIView):
     def post(self, request):
         try:
             organization = Organization.objects.first()
-            slack = Slack.objects.get(organization=organization)
+            slack = SlackToken.objects.get(organization=organization)
             if slack is not None:
                 slack.access_token = None
                 slack.save()
